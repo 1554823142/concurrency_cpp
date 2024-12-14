@@ -1,10 +1,19 @@
 #include <iostream>
 #include <thread>
 #include<string>
+#include<mutex>
 #include<assert.h>
 
 void do_something(int& i) {
     std::cout << "I'm doing something, like print the int : " << i << std::endl;
+}
+
+//传入int， 并且打印为线程安全
+void pass_int(int i)
+{
+    std::mutex mtx;
+    std::lock_guard<std::mutex> lock(mtx);
+    std::cout << "only pass a int num: " << i << std::endl;
 }
 
 //传入多个参数的函数
