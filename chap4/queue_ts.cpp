@@ -1,6 +1,8 @@
 #include <queue>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include <iostream>
 #include <condition_variable>
 
 template<typename T>
@@ -26,6 +28,7 @@ public:
         data_cond.notify_one();
     }
 
+    //从队列中弹出一个元素，若队列为空则等待直到队列非空
     void wait_and_pop(T& value) {
         std::unique_lock<std::mutex> lk(mut);
         data_cond.wait(lk, [this] { return !data_queue.empty(); });
@@ -62,3 +65,43 @@ public:
         return data_queue.empty();
     }
 };
+
+template<typename T>
+void tf1(threadsafe_queue<T>& q)
+{
+    std::cout << "q.empty(): " << q.empty() << ", and begin to push 1!" << std::endl;
+    for(int i = 0; i < 100; i++)
+        q.push(i);
+}
+
+template<typename T>
+void tf2(threadsafe_queue<T>& q)
+{
+    std::cout << "q.empty(): " << q.empty() << ", and begin to pop 1!" << std::endl;
+    int num;
+    q.wait_and_pop(std::ref(num));
+    std::cout << num <<std::endl;
+}
+
+void f1()
+{
+    threadsafe_queue<int> q;
+    std::thread t1(tf2<int>, std::ref(q));
+    std::thread t2(tf1<int>, std::ref(q));
+    std::thread t3(tf1<int>, std::ref(q));
+    std::thread t4(tf2<int>, std::ref(q));
+    std::thread t5(tf1<int>, std::ref(q));
+
+    //std::cout << "q.try_pop(): " << *q.try_pop().get() << std::endl;
+    t1.join();
+    t2.join();
+    t3.join();
+    t4.join();
+    t5.join();
+
+}
+
+int main()
+{
+    f1();
+}
