@@ -48,7 +48,50 @@
       
           // 5. 继续执行
       }
-      
       ```
+  
+- [future使用](../chap4/future.cpp)
+  
+  - 假设有一个需要长时间的运算，需要计算出一个有效值，但并不迫切需要这个值。你可以启动新线程来执行这个计算，你需要计算的结果，而`std::thread`并不提供直接接收返回值的机制。这里就需要`std::async`函数模板
+  
+    使用`std::async`启动一个**异步任务**, 返回一个`std::future`对象, 这个对象持有最终计算出来的结果; 当需要这个值时，只需要调用这个对象的`get()`成员函数，就会阻塞线程直到future为就绪为止，并返回计算结果
+  
+  - 上面写的例子中, 打印的结果为
+  
+    ```
+    do other thing :sleep for 4 sec!
+    find_the_answer_ltuae :sleep for 3 sec!
+    finished sleep 3 sec
+    finished sleep 4 sec
+    the answer is 3
+    ```
+  
+    并且前两行同时打印, 说明`std::async`开启了一个**异步线程**, 并且它执行完毕后打印结束
+  
+- [后台任务的返回值](../chap4/future_param.cpp)
 
-      
+  `std::async` : 允许向函数传递参数 . 第一个参数是指向成员函数的指针，第二个参数提供这个函数成员类的具体对象(是通过指针，也可以包装在`std::ref`中)，剩余的参数可作为函数的参数传入。
+
+  ```cpp	
+  std::future<R> std::async(
+      std::launch policy,  // 启动策略，指定是否异步执行
+      Callable&& f,        // 可调用对象：可以是普通函数、函数指针、Lambda 表达式、成员函数、函数对象等
+      Args&&... args       // 调用 `f` 时传递的参数
+  );
+  
+  //使用成员函数和对象指针
+  struct X {
+      void foo(int a, std::string const& s) {
+          std::cout << "foo called with: " << a << ", " << s << std::endl;
+      }
+  };
+  
+  int main() {
+      X x;
+      std::future<void> f3 = std::async(&X::foo, &x, 42, "hello");
+      f3.get();  // 调用对象 x 的成员函数 foo
+      return 0;
+  }
+  ```
+
+  
