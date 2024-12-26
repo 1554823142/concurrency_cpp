@@ -95,3 +95,71 @@
   ```
 
   
+  
+  - [future与任务关联](../chap4/package_task.cpp)
+  
+    `std::packaged_task` 是 C++11 中引入的一个模板类，它封装了一个**可调用对象**(某个任务)（如函数、函数指针、lambda 表达式或成员函数），并将其与一个 `std::future` 对象绑定。它允许在异步执行的过程中传递结果，并且可以与线程一起使用。即使用`package_task`对任务进行打包, 使用`future`机制获得异步的结果.
+  
+    - `std::packaged_task` 本身并不会直接执行任务，而是提供了一个接口 `operator()` 来触发任务的执行。
+  
+    - `std::future` 可以在任务完成时获取返回值或异常。
+  
+  - `使用std::promise`
+  
+    `std::promise/std::future`对提供一种机制：`future`可以阻塞等待线程，提供数据的线程可以使用`promise`对相关值进行设置，并将`future`的状态置为“就绪”. 即一个线程能够设置一个值（通常是计算结果），而另一个线程则能够获取该值
+  
+    也是使用`get_future()`函数获取`std::future`对象, 在`promise`设置完毕, 则设置`future`为就绪, 可以实现跨线程的通信
+  
+    ```cpp
+    #include <future>
+    
+    void process_connections(connection_set& connections) {
+        while (!done(connections)) { // 1
+            for (connection_iterator connection = connections.begin(), end = connections.end(); 
+                 connection != end; 
+                 ++connection) // 遍历多个连接对象
+            { 
+                if (connection->has_incoming_data()) { // 3 如果该连接有未处理的入站数据
+                    data_packet data = connection->incoming();
+                    std::promise<payload_type>& p = connection->get_promise(data.id); // 4 用于异步任务的结果传递
+                    p.set_value(data.payload);	// 使用std::promise设置该数据的负载值
+                }	/* 当数据包成功到达并准备好时，通知与该数据包相关的线程或者调用者，数据已经准备好了。其他线程（例如等待该数据的线程）可以通过 std::future 来获取这个结果。*/
+    
+                if (connection->has_outgoing_data()) { // 5 如果该连接有待发送的出站数据
+                    outgoing_packet data = connection->top_of_outgoing_queue();
+                    connection->send(data.payload); // 发送数据包的负载（data.payload）到远程连接
+                    data.promise.set_value(true); // 6 表明数据已成功发送
+                }
+            }
+        }
+    }
+    ```
+  
+    - 另一个简单的future与promise的例子
+  
+    ```cpp
+    #include <iostream>
+    #include <thread>
+    #include <future>
+    
+    void calculate_square(int x, std::promise<int> p) {
+        int result = x * x;
+        p.set_value(result);  // 设置计算结果
+    }
+    
+    int main() {
+        std::promise<int> p;          // 创建一个promise对象
+        std::future<int> f = p.get_future();  // 获取与promise关联的future
+    
+        std::thread t(calculate_square, 10, std::move(p));  // 启动线程并传递promise
+    
+        // 线程执行完成后获取结果
+        std::cout << "The square is: " << f.get() << std::endl;  // 输出结果
+    
+        t.join();  // 等待线程完成
+        return 0;
+    }
+    
+    ```
+  
+    
