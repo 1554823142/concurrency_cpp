@@ -163,3 +163,51 @@
     ```
   
     
+
+- [将异常存与future中](../chap4/exception.cpp)
+
+  函数作为`std::async`的一部分时，当调用抛出一个异常时，这个异常就会存储到`future`中，之后`future`的状态置为“就绪”，之后调用`get()`会抛出已存储的异常(注意：标准级别没有指定重新抛出的这个异常是原始的异常对象，还是一个拷贝。不同的编译器和库将会在这方面做出不同的选择)
+
+  `std::promise`也能提供同样的功能。当存入的是异常而非数值时，就需要调用`set_exception()`成员函数，而非`set_value()`
+
+- [限时等待](../chap4/wait.cpp)
+
+- [使用future的函数化编程](../chap4/FP.cpp)
+
+  **函数化编程**(functional programming)是一种编程方式，函数结果只依赖于传入函数的参数。使用相同的参数调用函数，不管多少次都会获得相同的结果.
+
+  `eg:` 数学公式函数
+  
+  - ps : `std::list::splice`
+  
+    用于将一个容器中的元素移动到另一个容器中，或者将某些元素从一个容器中移除并插入到同一容器中的其他位置
+  
+    `splice()` 函数非常高效，因为它**不会复制元素**，而是直接连接或切断元素的链表结构(即它会**改变原本的调用者**), 并且源列表中的元素将按原顺序插入目标列表。它们在目标列表中**保持相对顺序**
+  
+    
+  
+    参数列表:
+    
+    - `splice` 将一个列表的所有元素插入到另一个列表的某个位置
+    
+      ​	`void splice (const_iterator pos, list& x);`
+    
+    - `splice` 将一个列表中的一个元素插入到另一个列表的某个位置
+  
+      ​	`void splice (const_iterator pos, list& x, const_iterator i);`
+    
+      ​	**pos**: `x` 列表中元素插入的位置。
+    
+      ​	**x**: 要被移动的元素的源列表。
+    
+      ​	**i**: `x` 列表中的元素，将其插入到当前列表的 `pos` 位置。
+    
+    - `splice` 将一个列表的元素范围插入到另一个列表的某个位置
+    
+      ​	`void splice (const_iterator pos, list& x, const_iterator first, const_iterator last);`
+    
+    
+    
+    
+  
+  
