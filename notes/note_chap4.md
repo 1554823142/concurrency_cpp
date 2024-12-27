@@ -210,4 +210,100 @@
     
     
   
+- `等待多个future`
+  
+    假设有很多的数据需要处理，每个数据都可以单独的进行处理, 可以使用异步任务组来处理数据项，每个任务通过future返回处理结果.
+  
+    但是如果用异步任务来收集结果，先要生成异步任务，这样就会占用线程的资源，并且需要不断的对future进行轮询，当所有future状态为就绪时生成新的任务。逐个 `future` 结果的获取会涉及多次上下文切换和轮询，从而导致资源浪费和性能下降.
+  
+    ```cpp
+    std::future<FinalResult> process_data(std::vector<MyData>& vec) {
+        size_t const chunk_size = whatever;
+        std::vector<std::future<ChunkResult>> results;
+    
+        // 将输入数据切分为多个小块，并为每个块启动一个异步任务
+        for (auto begin = vec.begin(), end = vec.end(); begin != end;) {
+            size_t const remaining_size = end - begin;
+            size_t const this_chunk_size = std::min(remaining_size, chunk_size);
+    
+            // 异步处理数据块
+            results.push_back(std::async(process_chunk, begin, begin + this_chunk_size));
+            begin += this_chunk_size;
+        }
+    
+        // 创建一个新的异步任务，在所有异步任务完成时收集结果并整合
+        return std::async([all_results = std::move(results)]() {
+            std::vector<ChunkResult> v;
+            v.reserve(all_results.size());
+    
+            // 等待每个异步任务的结果并收集
+            for (auto& f : all_results) {
+                v.push_back(f.get());  // 阻塞等待每个 future 完成并获取结果 这就是反复轮询的地方, 频繁的等待和唤醒会带来额外的性能开销，尤其是在大量数据时
+            }
+    
+            // 整合所有结果
+            return gather_results(v);
+        });
+    }
+    ```
+  
+    ​	改进方法:  **使用when_all** 
+  
+    ​	这个功能允许你等待多个 `future` 完成，而无需逐个调用 `get()`。当所有的 `future` 都完成时，`when_all` 会返回一个新的 `future`，这个 `future` 的状态是就绪的，可以立即用于后续操作
+  
+    ```cpp
+    std::experimental::future<FinalResult> process_data(std::vector<MyData>& vec) {
+        size_t const chunk_size = whatever;
+        std::vector<std::experimental::future<ChunkResult>> results;
+    
+        // 将数据切分为多个小块，每个块的大小为 chunk_size，并异步处理每个块
+        for (auto begin = vec.begin(), end = vec.end(); begin != end;) {
+            size_t const remaining_size = end - begin;
+            size_t const this_chunk_size = std::min(remaining_size, chunk_size);
+    
+            // 异步处理每个数据块
+            results.push_back(
+                spawn_async(process_chunk, begin, begin + this_chunk_size)
+            );
+    
+            begin += this_chunk_size;  // 移动到下一个数据块
+        }
+    
+        // 使用 when_all 等待所有异步任务完成
+        return std::experimental::when_all(results.begin(), results.end()).then( // 1	在所有异步任务完成后，使用 .then() 来定义一个回调函数处理所有的结果
+            [](std::future<std::vector<std::experimental::future<ChunkResult>>> ready_results) {
+                // 获取所有异步任务的结果
+                std::vector<std::experimental::future<ChunkResult>> all_results = ready_results.get();
+                
+                std::vector<ChunkResult> v;
+                v.reserve(all_results.size());
+    
+                // 获取每个异步任务的结果
+                for (auto& f : all_results) {
+                    v.push_back(f.get()); // 2
+                }
+    
+                // 整合所有的 ChunkResult 结果
+                return gather_results(v);
+            }
+        );
+    }
+    
+    
+    ```
+  
+    还可以使用`std::experimental::when_any`将`future`收集在一起，当`future`有一个为就绪时，任务即为完成
+  
+- `锁存器和栅栏`
+  
+  有时等待的事件是一组线程，或是代码的某个特定点，亦或是协助处理一定量的数据。这种情况下，**最好使用锁存器或栅栏**，而非future
+  
+  - `std::experimental::latch` 
+  
+    `latch` 主要用于一种 **倒计时式的等待机制**。它允许线程等待，**直到一个计数器减少到零为止**。通常，`latch` 被用于一种“所有线程都达到某个条件之后才继续”的情形。`latch` 的计数器从一个指定的数值开始，每次调用 `count_down` 操作时，计数器减 1。当计数器的值减到零时，所有等待的线程才会被唤醒。
+    
+  - `std::experimental::barrier` 
+  
+    允许一组线程在多个阶段之间进行同步，并在每个阶段结束时确保所有线程都达成一致。每个线程都会在一个特定的同步点上**等待**，直到所有线程都到达该点，才可以继续执行。这种机制特别适用于需要在多个阶段进行同步的任务，例如在并行算法中，需要多个线程在每个阶段结束时等待其他线程。
+  
   
