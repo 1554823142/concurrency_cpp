@@ -34,7 +34,7 @@
     t.join(); 
     process_widget_data(data); 
   } 
-
+  
   //使用 std::ref 将参数转换成引用的形
   std::thread t(update_data_for_widget,w,std::ref(data));
   ```
