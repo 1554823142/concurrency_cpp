@@ -30,6 +30,38 @@ C++ 中原子操作的内存序（memory order）决定了操作的顺序性和�
 - **memory_order_acq_rel**：同时具有 `release` 和 `acquire` 的特性，适用于同步操作。
 - **memory_order_seq_cst**：提供**最强**的内存顺序约束, 强制顺序一致性，确保原子操作的顺序在全局范围内一致。
 
+代表了三种内存模型:
+
+- **[顺序一致性(SEQUENTIALLY CONSISTENT ORDERING)](../chap5/sequentially_consistent.cpp)**	`sequentially consistent`
+
+  所有线程看到的原子变量变化是按照某种全序一致的顺序发生, 其他线程会看到一个原子值在另一个线程的更新,
+
+  相比于其他几种内存序, `memory_order_seq_cst`指令执行后则**保证真正写入内存**(没有缓存)
+
+  在例子中, z可能为1, 也可能为2, 但是不可能为0
+
+  需要对所有线程进行**全局同步**，所以也是**开销最大**的内存序
+
+- **获取-释放序(ACQUIRE-RELEASE ORDERING)**                 `memory_order_consume`, `memory_order_acquire`, `memory_order_release`和`memory_order_acq_rel`
+
+  虽然操作依旧没有统一顺序，但引入了**同步**
+
+  同步在线程释放和获取间是**成对的(pairwise)**，释放操作与获取操作同步就能读取已写入的值。
+
+- **[自由序(RELAXED ORDERING)](../chap5/relaxed.cpp)**                          `memory_order_relaxed`
+
+  实例中`assert`可能被触发, 因为x和y是两个不同的变量，所以没有顺序去保证每个操作产生相关值的**可见性**
+
+
+
+#### 可见性
+
+指的是一个线程对共享变量的更新，何时能对其他线程可见
+
+多核处理器为了提高效率，会对变量进行**缓存和重排序**。每个线程有可能会在本地缓存中保存变量的副本，而不是直接从主内存中读取。当一个线程修改了某个变量的值，其他线程可能无法立刻看到这个修改(原因在于**缓存的一致性**以及**指令的重排序**)
+
+
+
 ### 原子操作的约束
 
 - **禁止拷贝和赋值** 
@@ -60,7 +92,7 @@ C++ 中原子操作的内存序（memory order）决定了操作的顺序性和�
 
     - 如果它们不相等，说明有其他线程修改了该变量，操作失败，通常会更新期望值为变量的当前值。
 
-    c++两种形式的 CAS 操作:
+    **c++两种形式的 CAS 操作**:
 
     - `compare_exchange_weak()`
 
@@ -74,4 +106,16 @@ C++ 中原子操作的内存序（memory order）决定了操作的顺序性和�
     
 
 ​		与`atomic_flag`不同的是: `std::atomic<bool>`可能不是无锁的, 除了`std::atomic_flag`之外，所有原子类型都拥有的特征(`is_lock_free`)
+
+### 原子操作中的非成员函数
+
+- 大多数非成员函数的命名与对应成员函数有关，需要`atomic_`作为前缀, eg:`atomic_load()`
+
+  `std::atomic_is_lock_free(&a)`返回值与`a.is_lock_free()`相同, 再比如:`std::atomic_load(&a)`和`a.load()`的作用一样
+
+  非成员函数的设计是为了与C语言兼容，因为C语言中没有引用
+
+
+
+## 同步操作和强制排序
 
