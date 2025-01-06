@@ -20,6 +20,10 @@
 
 ### c++ 内存序
 
+> 问题产生的背景:
+>
+> 处理器读取一个数据时，可能从内存中读取，也可能从缓存中读取，还可能从寄存器读取
+
 C++ 中原子操作的内存序（memory order）决定了操作的顺序性和同步性。不同的内存序在不同的场景下提供不同程度的性能和一致性保证。
 
 常用的内存序:
@@ -42,13 +46,79 @@ C++ 中原子操作的内存序（memory order）决定了操作的顺序性和�
 
   需要对所有线程进行**全局同步**，所以也是**开销最大**的内存序
 
+  
+
 - **获取-释放序(ACQUIRE-RELEASE ORDERING)**                 `memory_order_consume`, `memory_order_acquire`, `memory_order_release`和`memory_order_acq_rel`
 
   虽然操作依旧没有统一顺序，但引入了**同步**
 
-  同步在线程释放和获取间是**成对的(pairwise)**，释放操作与获取操作同步就能读取已写入的值。
+  同步在线程释放和获取间是**成对的(pairwise)**，释放操作与获取操作同步就能读取已写入的值
+
+    - 原子`load`: `acquire`操作(`memory_order_acquire`)	
+
+      保证该操作读取到的值**一定是之前写入**的值(看invalidate queue中是否有该内存的*更新指令*，如果有重新**从主存中加载最新的数据**)
+
+      保证后面其它线程读取该值时**能够读到最新值**，满足**可见性**
+
+    - 原子`store`: `release`操作(`memory_order_release`)
+
+      保证之前的所有**写(也仅对写有限制, 对读没有约束)**操作都在该操作**之前**完成，不能重排序，即保证**happens-before**关系
+
+      保证该操作之前写入的值对其它线程都是可见, 把CPU高速缓存中的数据同步到主存和其它CPU高速缓存中(发送了一个更新指令消息到其它CPU的`invalidate queue`中)
+
+​	*[an example(参考于)](https://www.cnblogs.com/ljmiao/p/18145946)*:
+
+```cpp
+#include <atomic>
+#include <thread>
+#include <assert.h>
+
+std::atomic<bool> x,y;
+std::atomic<int> z;
+
+void write_x_then_y()
+{
+    x.store(true,std::memory_order_relaxed);// 1
+    y.store(true,std::memory_order_release);// 2
+}
+
+void read_y_then_x()
+{
+    while(!y.load(std::memory_order_acquire));// 3
+    if(x.load(std::memory_order_relaxed)) //4
+        ++z;
+}
+
+int main()
+{
+    x=false;
+    y=false;
+    z=0;
+    std::thread a(write_x_then_y);
+    std::thread b(read_y_then_x);
+    a.join();
+    b.join();
+    assert(z.load()!=0);
+}
+```
+
+- 顺序保证:	
+
+    - 1一定发生于2之前(`happen-before`)
+
+      执行 `y.store(true, std::memory_order_release)`，此操作会确保在它之前对 `x` 的写操作是可见的。这意味着线程 A 对 `x` 的更新（`x = true`）在执行 `y.store` 后是可以被其他线程看到的。
+
+    - 2一定发生于3之前(`Synchronizes-With`)
+
+  		- 3一定发生于4之前(`happen-before`)
+
+  以上的顺序保证`assert`断言始终成立
+
+​	
 
 - **[自由序(RELAXED ORDERING)](../chap5/relaxed.cpp)**                          `memory_order_relaxed`
+
+  唯一的要求是在**同一**线程中，对**同一**原子变量的访问不可以被重排, 不同的原子变量的操作顺序是可以重排的
 
   实例中`assert`可能被触发, 因为x和y是两个不同的变量，所以没有顺序去保证每个操作产生相关值的**可见性**
 
