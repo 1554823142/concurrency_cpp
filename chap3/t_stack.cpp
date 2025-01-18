@@ -50,7 +50,7 @@ public:
     }
 
     // pop 操作，将栈顶元素复制到传入的引用中，并从栈中移除
-    void pop(T& value) {
+    void pop(T& value) {  
         std::lock_guard<std::mutex> lock(m);
         if (data.empty()) throw empty_stack();
         value = data.top();
