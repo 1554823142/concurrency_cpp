@@ -3,6 +3,8 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <condition_variable>
+#include <chrono>
 
 /// 改进的好处:(change 1~5):
 /// push()仅访问tail而不再访问head, 虽然try_pop访问了两者, 但是也仅仅在开始访问tail用作比较, 所以持有锁的时间较短
@@ -124,8 +126,104 @@ public:
     }
 };
 
+template<typename T>
+class threadsafe_queue2 {
+    struct node {
+        std::shared_ptr<T> data;
+        std::unique_ptr<node> next;
+    };
+    std::mutex head_mutex;
+    std::unique_ptr<node> head;
+    std::mutex tail_mutex;
+    node* tail;
+    std::condition_variable data_cond;
+public:
+    threadsafe_queue2() : head(new node), tail(head.get()) {}    /// 创建dummy node
+    threadsafe_queue2(const threadsafe_queue2& other)=delete;
+    threadsafe_queue2& operator=(const threadsafe_queue2& other)=delete;
 
-int main() {
+    /// new support
+    std::shared_ptr<T> wait_and_pop(){
+        std::unique_ptr<node> const old_head = wait_pop_head();
+        return old_head->data;
+    }
+    void wait_and_pop(T& value){
+        std::unique_ptr<node> const old_head = wait_pop_head(value);
+    }
+    void push(T new_value);
+
+    bool empty(){
+        std::lock_guard<std::mutex> head_lock(head_mutex);
+        return head.get() == get_tail();
+    }
+
+    std::shared_ptr<T> try_pop(){
+        std::unique_ptr<node> old_head = try_pop_head();
+        return old_head ? old_head->data : std::shared_ptr<T>();
+    }
+    bool try_pop(T& value){
+        std::unique_ptr<node> const old_head = try_pop_head(value);
+        return old_head;
+    }
+
+private:
+    node* get_tail() {
+        std::lock_guard<std::mutex> tail_lock(tail_mutex);
+        return tail;
+    }
+    std::unique_ptr<node> pop_head(){
+        std::unique_ptr<node> old_head = std::move(head);
+        head = std::move(old_head->next);
+        return old_head;
+    }
+    std::unique_lock<std::mutex> wait_for_data(){
+        std::unique_lock<std::mutex> head_lock(head_mutex);
+        data_cond.wait(head_lock, [&]{return head.get() != get_tail();});       /// lambda表达式作为断言
+        return std::move(head_lock);            /// 返回锁实例
+    }
+    std::unique_ptr<node> wait_pop_head() {
+        std::unique_lock<std::mutex> head_lock(wait_for_data());
+        return pop_head();
+    }
+    std::unique_ptr<node> wait_pop_head(T& value) {
+        std::unique_lock<std::mutex> head_lock(wait_for_data());
+        value = std::move(*head->data);
+        return pop_head();
+    }
+    std::unique_ptr<node> try_pop_head(){
+        std::lock_guard<std::mutex> head_lock(head_mutex);
+        if(head.get() == get_tail())
+            return std::unique_ptr<node>();
+        return pop_head();
+    }
+    std::unique_ptr<node> try_pop_head(T& value){
+        std::lock_guard<std::mutex> head_lock(head_mutex);
+        if(head.get() == get_tail())
+            return std::unique_ptr<node>();
+        value = std::move(*head->data);
+        return pop_head();
+    }
+};
+
+template<typename T>
+void threadsafe_queue2<T>::push(T new_value)
+{
+    std::shared_ptr<T> new_data(
+            std::make_shared<T>(std::move(new_value))
+            );
+    std::unique_ptr<node> p(new node);
+    {
+        std::lock_guard<std::mutex> tail_lock(tail_mutex);
+        tail->data = new_data;
+        node* const new_tail = p.get();
+        tail->next = std::move(p);
+        tail = new_tail;
+    }
+    data_cond.notify_one();
+}
+
+void demo1()
+{
     threadsafe_queue<int> queue;
 
     // Start 5 threads that push values into the queue
@@ -154,6 +252,42 @@ int main() {
     for (auto& t : threads) {
         t.join();
     }
+}
 
+
+// 测试用的简单队列操作
+void producer(threadsafe_queue2<int>& q) {
+    for (int i = 0; i < 10; ++i) {
+        std::cout << "Producing: " << i << std::endl;
+        q.push(i);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));  // 模拟生产过程
+    }
+}
+
+void consumer(threadsafe_queue2<int>& q) {
+    for (int i = 0; i < 10; ++i) {
+        auto value = q.wait_and_pop();  // 阻塞直到有数据
+        std::cout << "Consuming: " << *value << std::endl;
+    }
+}
+
+
+void demo2()
+{
+    threadsafe_queue2<int> q;  // 创建一个线程安全队列
+
+    // 创建生产者和消费者线程
+    std::thread t1(producer, std::ref(q));  // 传入队列的引用
+    std::thread t2(consumer, std::ref(q));
+
+    // 等待线程完成
+    t1.join();
+    t2.join();
+}
+
+int main() {
+
+    // demo1();
+    demo2();
     return 0;
 }
