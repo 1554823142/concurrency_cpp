@@ -29,3 +29,93 @@
 - [采用精细粒度的锁和条件变量实现线程安全的队列容器]()
 
   
+
+## 基于锁的并发链表
+
+```cpp
+struct node 
+ { 
+     std::mutex m; 
+     std::shared_ptr<T> data; 
+     std::unique_ptr<node> next; 
+     node(): next() 
+     {} 
+     node(T const& value): 
+     data(std::make_shared<T>(value)) 
+     {} 
+ };
+
+template<typename Function> 
+ void for_each(Function f) 
+ { 
+     node* current=&head; 
+     std::unique_lock<std::mutex> lk(head.m); 
+     while(node* const next=current->next.get()) 
+     { 
+         std::unique_lock<std::mutex> next_lk(next->m); 
+         lk.unlock(); 
+         f(*next->data); 
+         current=next; 
+         lk=std::move(next_lk); 
+     } 
+ }
+
+template<typename Predicate> 
+std::shared_ptr<T> find_first_if(Predicate p) 
+ { 
+     node* current=&head; 
+     std::unique_lock<std::mutex> lk(head.m);
+     while(node* const next=current->next.get()) 
+     { 
+         std::unique_lock<std::mutex> next_lk(next->m); 
+         lk.unlock(); 
+         if(p(*next->data)) 
+         { 
+             return next->data; 
+         } 
+         current=next; 
+         lk=std::move(next_lk); 
+     } 
+     return std::shared_ptr<T>(); 
+ }
+
+template<typename Predicate> 
+ void remove_if(Predicate p) 
+ { 
+     node* current=&head; 
+     std::unique_lock<std::mutex> lk(head.m); 
+     while(node* const next=current->next.get()) 
+     { 
+         std::unique_lock<std::mutex> next_lk(next->m); 
+         if(p(*next->data)) 
+         { 
+             std::unique_ptr<node> old_next=std::move(current->next); 
+             current->next=std::move(next->next); 
+             next_lk.unlock(); 
+         } 
+         else 
+         { 
+             lk.unlock(); 
+             current=next; 
+             lk=std::move(next_lk); 
+         } 
+     } 
+ }
+```
+
+### `for_each`函数
+
+- `template<typename Function> `: 参数模版为一个函数
+- 传入的参数`f`为一个函数, 表示对链表的每个元素进行的操作(如打印, 改变数据等)
+- 工作流程:
+  - 沿着链表前进交替加锁
+  - 首先锁住头结点, 然后通过`next`指针的`get()`获得下一节点的指针(因为`next`的类型为`unique_ptr`, 所以不能直接赋值, 否则会直接交换所有权)
+  - 然后就可以开始遍历整个链表了, 只要锁住了`next`, 就可以释放当前的节点, 调用`f()`来处理节点
+  - 节点处理完成, 就更新节点的信息, 便于继续遍历, 使用`std::move()`来释放`next_lk`, 并对`lk`上锁
+
+### `find_first_if`函数
+
+- 根据`predict`断言来决定何时推出搜索, 其他与`for_each`相同
+
+
+
